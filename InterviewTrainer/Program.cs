@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using InterviewTrainer.Api.Data;
 using InterviewTrainer.Api.Endpoints;
 using InterviewTrainer.Api.Services;
-using InterviewTrainer.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
 

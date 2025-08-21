@@ -7,15 +7,15 @@
   <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2/css/pico.min.css?v=2">
   <style>
     .muted { color: #6b7280; }
-    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
-    textarea{min-height:120px}
-    .actions { display:flex; gap:8px; white-space:nowrap; }
-    .editing td { background: color-mix(in srgb, #f5f5f5 90%, #eceaea 10%); }
-    .cell-textarea, .cell-input {
-      width: 100%; min-height: 90px; box-sizing: border-box;
-      .container-narrow{max-width: 980px; margin: 0 auto;}
-    nav ul:first-child li strong{letter-spacing:.2px}}
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    textarea { min-height: 120px; }
+    .actions { display: flex; gap: 8px; white-space: nowrap; flex-wrap: wrap; }
+    .editing td { background: #eef2f7; } /* нейтральный фон в режиме редактирования */
+    .cell-textarea, .cell-input { width: 100%; min-height: 90px; box-sizing: border-box; }
+    .container-narrow { max-width: 980px; margin: 0 auto; }
+    nav ul:first-child li strong { letter-spacing: .2px; }
   </style>
+
 </head>
 <body>
 <nav class="container">
@@ -84,7 +84,6 @@
   });
 
   async function loadQuestions(page = 1, pageSize = 100) {
-    tr.dataset.id = q.id;
     listError.textContent = '';
     listEl.innerHTML = '';
     totalInfo.textContent = 'Загрузка…';
@@ -92,35 +91,101 @@
       const res = await fetch(`/api/questions?page=${page}&pageSize=${pageSize}`);
       if (!res.ok) throw new Error(`Ошибка загрузки: ${res.status}`);
       const data = await res.json();
+      
       totalInfo.textContent = `Всего: ${data.total}`;
-      if (data.items.length === 0) {
+      
+      if (!data.items || data.items.length === 0) {
         listEl.innerHTML = `<tr><td colspan="4" class="muted">Пока нет вопросов</td></tr>`;
         return;
       }
+      
       for (const q of data.items) {
         const tr = document.createElement('tr');
+        tr.dataset.id = q.id;
+
         tr.innerHTML = `
             <td class="mono">${q.id}</td>
             <td class="cell-text">${escapeHtml(q.text)}</td>
             <td class="cell-answer">${escapeHtml(q.answer)}</td>
-            <td>${escapeHtml(q.text)}</td>
-            <td>${escapeHtml(q.answer)}</td>
             <td class="actions">
-            <button class="secondary outline btn-edit">Редактировать</button>
-              <button data-id="${q.id}" class="secondary outline btn-del">Удалить</button>
+                <button data-id="${q.id}" class="secondary outline btn-edit">Редактировать</button>
+                <button data-id="${q.id}" class="secondary outline btn-del">Удалить</button>
             </td>
-          `;
+        `;
         listEl.appendChild(tr);
       }
+      
+      // Обработчик удаления
       document.querySelectorAll('.btn-del').forEach(btn => {
         btn.addEventListener('click', async () => {
           if (!confirm('Удалить вопрос?')) return;
           await deleteQuestion(btn.dataset.id);
         });
       });
+      
+      // Обработчик редактирования
+      document.querySelectorAll('.btn-edit').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const tr = btn.closest('tr');
+          if (!tr || tr.classList.contains('editing')) return;
+          
+          tr.classList.add('editing');
+          
+          const id = btn.dataset.id;
+          const tdText = tr.querySelector('.cell-text');
+          const tdAns  = tr.querySelector('.cell-answer');
+          const tdActs = tr.querySelector('.actions');
+
+          const origText = tdText.textContent;
+          const origAns  = tdAns.textContent;
+
+          tdText.innerHTML = `<textarea class="cell-textarea"></textarea>`;
+          tdAns.innerHTML  = `<textarea class="cell-textarea"></textarea>`;
+          tdText.querySelector('textarea').value = origText;
+          tdAns.querySelector('textarea').value  = origAns;
+
+          tdActs.innerHTML = `
+            <button data-id="${id}" class="btn-save">Сохранить</button>
+            <button data-id="${id}" class="secondary outline btn-cancel">Отмена</button>
+            <button data-id="${id}" class="secondary outline btn-del">Удалить</button>
+            `;
+
+          tdActs.querySelector('.btn-save').addEventListener('click', async () => {
+            const newText = tdText.querySelector('textarea').value.trim();
+            const newAns  = tdAns.querySelector('textarea').value.trim();
+            if (!newText || !newAns) { alert('Поля обязательны'); return; }
+            const ok = await updateQuestion(id, newText, newAns);
+            if (ok) await loadQuestions();
+          });
+          
+          tdActs.querySelector('.btn-cancel').addEventListener('click', async () => {
+            await loadQuestions();
+          });
+
+          tdActs.querySelector('.btn-del').addEventListener('click', async () => {
+            if (!confirm('Удалить вопрос?')) return;
+            await deleteQuestion(id);
+          });
+        })
+      })
+      
     } catch (e) {
-      listError.textContent = e.message;
+      listError.textContent = e.message || 'Неизвестная ошибка';
+      totalInfo.textContent = '';
     }
+  }
+
+  async function updateQuestion(id, text, answer) {
+    const res = await fetch(`/api/questions/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, answer })
+    });
+    if (!res.ok) {
+      alert(await safeError(res));
+      return false;
+    }
+    return true;
   }
 
   async function addQuestion() {
@@ -132,10 +197,14 @@
       return;
     }
     const res = await fetch('/api/questions', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, answer })
     });
-    if (!res.ok) { createError.textContent = await safeError(res); return; }
+    if (!res.ok) 
+    { createError.textContent = await safeError(res); 
+      return; 
+    }
     document.getElementById('q-text').value = '';
     document.getElementById('q-answer').value = '';
     await loadQuestions();
@@ -143,7 +212,10 @@
 
   async function deleteQuestion(id) {
     const res = await fetch(`/api/questions/${id}`, { method: 'DELETE' });
-    if (!res.ok) { alert('Не удалось удалить'); return; }
+    if (!res.ok) { 
+      alert('Не удалось удалить'); 
+      return; 
+    }
     await loadQuestions();
   }
 
