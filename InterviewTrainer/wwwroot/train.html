@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <title>Тренировка · Interview Trainer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@2/css/pico.min.css">
+    <style>
+        .muted { color: #6b7280; }
+        .q{white-space:pre-wrap;font-size:1.15rem}
+        .a{white-space:pre-wrap}
+        .stats strong{font-size:1.05rem}
+        .container-narrow{max-width: 880px; margin: 0 auto;}
+        :root{
+            --correct: #0b7a0b;
+            --correct-hover: #0f8f67;
+            --wrong: #c12121;
+            --wrong-hover: #ef4444;
+        }
+        .toolbar{ display: flex; flex-wrap: wrap; gap:10px; align-items: center;}
+        .btn-correct{
+            background-color: var(--correct);
+            border-bottom-color: var(--correct);
+            color: #fff;
+        }
+        .btn-correct:is{
+            background-color: var(--correct-hover);
+            border-bottom-color: var(--correct-hover);
+        }
+        .btn-wrong{
+            background-color: var(--wrong);
+            border-color: var(--wrong);
+            color: #fff;
+        }
+        .btn-wrong:is{
+            background-color: var(--wrong-hover);
+            border-color: var(--wrong-hover);
+        }
+        .btn-correct:disabled,
+        .btn-wrong:disabled{
+            opacity: .55;
+            cursor: not-allowed;
+        }
+        
+    </style>
+</head>
+<body>
+<nav class="container">
+    <ul>
+        <li><strong>Interview Trainer</strong></li>
+    </ul>
+    <ul>
+        <li><a href="/questions.html">Вопросы</a></li>
+        <li><a href="/train.html" aria-current="page">Тренировка</a></li>
+    </ul>
+</nav>
+
+<main class="container container-narrow">
+    <h1>Тренировка</h1>
+
+    <article>
+        <header><strong>Управление</strong></header>
+
+        <div class="toolbar">
+            <button id="btn-start">Старт</button>
+            <button id="btn-stop" class="secondary outline" disabled>Стоп</button>
+            <button id="btn-show" class="secondary" disabled>Показать ответ</button>
+            <button id="btn-correct" class="btn-correct" disabled>Правильный</button>
+            <button id="btn-wrong"   class="btn-wrong"   disabled>Неправильный</button>
+        </div>
+
+        <small id="err" class="muted"></small>
+        <p class="stats"><strong>Правильных:</strong> <span id="s-c">0</span> / <strong>Задано:</strong> <span id="s-a">0</span></p>
+    </article>
+
+    <article>
+        <header><strong>Вопрос</strong></header>
+        <p id="q" class="q muted">Нажмите «Старт»</p>
+    </article>
+
+    <article>
+        <header><strong>Ответ</strong></header>
+        <p id="a" class="a muted">—</p>
+    </article>
+</main>
+
+<script>
+    let sessionId = null;
+    let finished = false;
+
+    const btnStart = document.getElementById('btn-start');
+    const btnShow  = document.getElementById('btn-show');
+    const btnCorrect = document.getElementById('btn-correct');
+    const btnWrong = document.getElementById('btn-wrong');
+    const btnStop  = document.getElementById('btn-stop');
+
+    const qEl = document.getElementById('q');
+    const aEl = document.getElementById('a');
+    const errEl = document.getElementById('err');
+    const sC = document.getElementById('s-c');
+    const sA = document.getElementById('s-a');
+
+    function setError(msg) { errEl.textContent = msg || ''; }
+    function setButtons(state) {
+        if (state === 'idle') {
+            btnStart.disabled=false; btnShow.disabled=true; btnCorrect.disabled=true; btnWrong.disabled=true; btnStop.disabled=true;
+        } else if (state === 'active') {
+            btnStart.disabled=true; btnShow.disabled=false; btnCorrect.disabled=false; btnWrong.disabled=false; btnStop.disabled=false;
+        } else {
+            btnStart.disabled=false; btnShow.disabled=true; btnCorrect.disabled=true; btnWrong.disabled=true; btnStop.disabled=true;
+        }
+    }
+    function resetUI() {
+        sessionId=null; finished=false;
+        sC.textContent='0'; sA.textContent='0';
+        qEl.textContent='Нажмите «Старт»'; qEl.classList.add('muted');
+        aEl.textContent='—'; aEl.classList.add('muted');
+        setButtons('idle'); setError('');
+    }
+    function showQuestion(q) {
+        if (q) { qEl.textContent=q.text; } else { qEl.textContent='Вопросы закончились'; }
+        qEl.classList.remove('muted'); aEl.textContent='—'; aEl.classList.add('muted');
+    }
+    function updateStats(s){ sC.textContent=s.correct; sA.textContent=s.asked; }
+
+    async function start() {
+        setError('');
+        const res = await fetch('/api/sessions/start', { method:'POST' });
+        if (!res.ok) { setError(await safeError(res) || 'Не удалось запустить сессию'); return; }
+        const data = await res.json();
+        sessionId = data.sessionId; finished=false;
+        updateStats(data.stats); showQuestion(data.question); setButtons('active');
+    }
+    async function showAnswer() {
+        if (!sessionId) return;
+        const res = await fetch(`/api/sessions/${sessionId}/current/answer`);
+        if (!res.ok) { setError(await safeError(res)); return; }
+        const data = await res.json(); aEl.textContent=data.answer; aEl.classList.remove('muted');
+    }
+    async function sendAnswer(isCorrect) {
+        if (!sessionId) return;
+        const res = await fetch(`/api/sessions/${sessionId}/answer`, {
+            method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ isCorrect })
+        });
+        if (!res.ok) { setError(await safeError(res)); return; }
+        const data = await res.json();
+        updateStats(data.stats); finished=data.finished; showQuestion(data.question);
+        if (finished) { setButtons('finished'); setError('Сессия завершена. Нажмите «Старт», чтобы начать заново.'); }
+    }
+    async function stop() {
+        if (!sessionId) return;
+        const res = await fetch(`/api/sessions/${sessionId}/stop`, { method:'POST' });
+        if (res.ok) {
+            const data = await res.json();
+            alert(`Финальная статистика:\nПравильных: ${data.stats.correct}\nЗадано: ${data.stats.asked}`);
+        }
+        resetUI();
+    }
+    async function safeError(res){ try{const j=await res.json();return j.message||JSON.stringify(j);}catch{return `HTTP ${res.status}`;} }
+
+    btnStart.addEventListener('click', start);
+    btnShow.addEventListener('click', showAnswer);
+    btnCorrect.addEventListener('click', () => sendAnswer(true));
+    btnWrong.addEventListener('click', () => sendAnswer(false));
+    btnStop.addEventListener('click', stop);
+
+    resetUI();
+</script>
+</body>
+</html>

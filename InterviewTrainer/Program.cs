@@ -1,9 +1,17 @@
+using Microsoft.EntityFrameworkCore;
+using InterviewTrainer.Api.Data;
+using InterviewTrainer.Api.Endpoints;
+using InterviewTrainer.Api.Services;
+using InterviewTrainer.Api.Endpoints;
+
 var builder = WebApplication.CreateBuilder(args);
 
-
-builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddSingleton<SessionStore>();
+
+builder.Services.AddDbContext<AppDbContext>(opt =>
+    opt.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection") ?? "Data Source=app.db"));
 
 var app = builder.Build();
 
@@ -13,12 +21,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
+app.UseDefaultFiles();
+app.UseStaticFiles();
+app.MapQuestionEndpoints();
+app.MapSessionEndpoints();
+app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
